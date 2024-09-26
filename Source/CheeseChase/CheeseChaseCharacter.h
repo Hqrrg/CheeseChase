@@ -13,61 +13,56 @@ class UInputMappingContext;
 class UInputAction;
 struct FInputActionValue;
 
-DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
+enum class ETileLane : uint8;
 
 UCLASS(config=Game)
 class ACheeseChaseCharacter : public ACharacter
 {
 	GENERATED_BODY()
-
-	/** Camera boom positioning the camera behind the character */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, meta = (AllowPrivateAccess = "true"))
-	USpringArmComponent* CameraBoom;
-
-	/** Follow camera */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, meta = (AllowPrivateAccess = "true"))
-	UCameraComponent* FollowCamera;
 	
-	/** MappingContext */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	UInputMappingContext* DefaultMappingContext;
-
-	/** Jump Input Action */
+	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	UInputAction* JumpAction;
-
-	/** Move Input Action */
+	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
-	UInputAction* MoveAction;
-
-	/** Look Input Action */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
-	UInputAction* LookAction;
+	UInputAction* ChooseLaneAction;
 
 public:
 	ACheeseChaseCharacter();
-	
 
 protected:
-
-	/** Called for movement input */
-	void Move(const FInputActionValue& Value);
-
-	/** Called for looking input */
-	void Look(const FInputActionValue& Value);
-			
-
-protected:
-	// APawn interface
-	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
-	
-	// To add mapping context
 	virtual void BeginPlay();
+	
+	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
+
+protected:
+	void ChooseLane(const FInputActionValue& Value);
+
+	UFUNCTION()
+	void Move();
 
 public:
-	/** Returns CameraBoom subobject **/
-	FORCEINLINE class USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
-	/** Returns FollowCamera subobject **/
-	FORCEINLINE class UCameraComponent* GetFollowCamera() const { return FollowCamera; }
+	UFUNCTION(BlueprintPure)
+	FORCEINLINE class ATile* GetCurrentTile() const { return CurrentTile; }
+
+	UFUNCTION(BlueprintCallable)
+	FORCEINLINE void SetCurrentTile(class ATile* NewTile) { CurrentTile = NewTile; }
+
+	UFUNCTION(BlueprintPure)
+	FORCEINLINE ETileLane GetMovementLane() const { return MovementLane; }
+
+	UFUNCTION(BlueprintCallable)
+	FORCEINLINE void SetMovementLane(ETileLane TileLane) { MovementLane = TileLane; }
+
+private:
+	FTimerHandle MovementTimerHandle;
+	FTimerDelegate MovementTimerDelegate;
+
+	UPROPERTY()
+	class ATile* CurrentTile = nullptr;
+
+	ETileLane MovementLane;
 };
 

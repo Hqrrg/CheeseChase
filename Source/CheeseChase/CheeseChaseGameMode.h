@@ -26,8 +26,11 @@ public:
 protected:
 	virtual void BeginPlay() override;
 
-private:
+public:
 	void SpawnTiles(int32 Num);
+
+private:
+	void PurgeTiles();
 
 private:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "*|Tiles", meta = (AllowPrivateAccess = "true"))
@@ -35,11 +38,17 @@ private:
 	
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "*|Tiles", meta = (AllowPrivateAccess = "true"))
 	TMap<TSubclassOf<class ATile>, ETileRarity> TilePrefabs;
+
+	UPROPERTY()
+	TArray<class ATile*> Tiles;
 	
 	FTransform NextTileTransform;
 	bool IsFirstTile = true;
 	int32 MaxCornerBuffer = 3;
 	int32 CornerBuffer = MaxCornerBuffer;
+
+	uint8 StartingTiles = 5;
+	uint8 TileLimit = StartingTiles+1;
 };
 
 

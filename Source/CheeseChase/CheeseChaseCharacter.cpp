@@ -2,19 +2,15 @@
 
 #include "CheeseChaseCharacter.h"
 #include "Engine/LocalPlayer.h"
-#include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
-#include "GameFramework/SpringArmComponent.h"
 #include "GameFramework/Controller.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "InputActionValue.h"
+#include "Tile.h"
+#include "Components/SplineComponent.h"
 
-DEFINE_LOG_CATEGORY(LogTemplateCharacter);
-
-//////////////////////////////////////////////////////////////////////////
-// ACheeseChaseCharacter
 
 ACheeseChaseCharacter::ACheeseChaseCharacter()
 {
@@ -27,8 +23,7 @@ ACheeseChaseCharacter::ACheeseChaseCharacter()
 	bUseControllerRotationRoll = false;
 
 	// Configure character movement
-	GetCharacterMovement()->bOrientRotationToMovement = true; // Character moves in the direction of input...	
-	GetCharacterMovement()->RotationRate = FRotator(0.0f, 500.0f, 0.0f); // ...at this rotation rate
+	GetCharacterMovement()->bOrientRotationToMovement = false;
 
 	// Note: For faster iteration times these variables, and many more, can be tweaked in the Character Blueprint
 	// instead of recompiling to adjust them
@@ -38,30 +33,22 @@ ACheeseChaseCharacter::ACheeseChaseCharacter()
 	GetCharacterMovement()->MinAnalogWalkSpeed = 20.f;
 	GetCharacterMovement()->BrakingDecelerationWalking = 2000.f;
 	GetCharacterMovement()->BrakingDecelerationFalling = 1500.0f;
-
-	// Create a camera boom (pulls in towards the player if there is a collision)
-	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
-	CameraBoom->SetupAttachment(RootComponent);
-	CameraBoom->TargetArmLength = 400.0f; // The camera follows at this distance behind the character	
-	CameraBoom->bUsePawnControlRotation = true; // Rotate the arm based on the controller
-
-	// Create a follow camera
-	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
-	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName); // Attach the camera to the end of the boom and let the boom adjust to match the controller orientation
-	FollowCamera->bUsePawnControlRotation = false; // Camera does not rotate relative to arm
-
-	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character) 
-	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
 }
 
 void ACheeseChaseCharacter::BeginPlay()
 {
-	// Call the base class  
 	Super::BeginPlay();
-}
 
-//////////////////////////////////////////////////////////////////////////
-// Input
+	SetMovementLane(ETileLane::Middle);
+
+	UWorld* World = GetWorld();
+
+	if (World)
+	{
+		MovementTimerDelegate.BindUFunction(this, FName("Move"));
+		World->GetTimerManager().SetTimer(MovementTimerHandle, MovementTimerDelegate, 0.001f, true);
+	}
+}
 
 void ACheeseChaseCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
@@ -78,53 +65,57 @@ void ACheeseChaseCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInp
 	if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerInputComponent)) {
 		
 		// Jumping
-		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Started, this, &ACharacter::Jump);
-		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Completed, this, &ACharacter::StopJumping);
+		//EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Started, this, &ACharacter::Jump);
+		//EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Completed, this, &ACharacter::StopJumping);
 
-		// Moving
-		EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &ACheeseChaseCharacter::Move);
-
-		// Looking
-		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &ACheeseChaseCharacter::Look);
-	}
-	else
-	{
-		UE_LOG(LogTemplateCharacter, Error, TEXT("'%s' Failed to find an Enhanced Input component! This template is built to use the Enhanced Input system. If you intend to use the legacy system, then you will need to update this C++ file."), *GetNameSafe(this));
+		// Choosing Lane
+		EnhancedInputComponent->BindAction(ChooseLaneAction, ETriggerEvent::Triggered, this, &ACheeseChaseCharacter::ChooseLane);
 	}
 }
 
-void ACheeseChaseCharacter::Move(const FInputActionValue& Value)
+void ACheeseChaseCharacter::ChooseLane(const FInputActionValue& Value)
 {
-	// input is a Vector2D
-	FVector2D MovementVector = Value.Get<FVector2D>();
-
-	if (Controller != nullptr)
-	{
-		// find out which way is forward
-		const FRotator Rotation = Controller->GetControlRotation();
-		const FRotator YawRotation(0, Rotation.Yaw, 0);
-
-		// get forward vector
-		const FVector ForwardDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
+	int8 Direction = Value.Get<FInputActionValue::Axis1D>();
 	
-		// get right vector 
-		const FVector RightDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
+	uint8 CurrentMovementLaneIndex = static_cast<uint8>(MovementLane);
+	uint8 NewMovementLaneIndex = CurrentMovementLaneIndex + Direction;
+	
+	ETileLane NewLane = MovementLane;
 
-		// add movement 
-		AddMovementInput(ForwardDirection, MovementVector.Y);
-		AddMovementInput(RightDirection, MovementVector.X);
+	switch (NewMovementLaneIndex)
+	{
+	case 0:
+		NewLane = ETileLane::Left;
+		break;
+		
+	case 1:
+		NewLane = ETileLane::Middle;
+		break;
+		
+	case 2:
+		NewLane = ETileLane::Right;
+		break;
+		
+	default:
+		break;
 	}
+
+	SetMovementLane(NewLane);
 }
 
-void ACheeseChaseCharacter::Look(const FInputActionValue& Value)
+void ACheeseChaseCharacter::Move()
 {
-	// input is a Vector2D
-	FVector2D LookAxisVector = Value.Get<FVector2D>();
+	if (!CurrentTile) return;
 
-	if (Controller != nullptr)
-	{
-		// add yaw and pitch input to controller
-		AddControllerYawInput(LookAxisVector.X);
-		AddControllerPitchInput(LookAxisVector.Y);
-	}
+	FVector ActorLocation = GetActorLocation();
+	USplineComponent* MovementSpline = CurrentTile->GetLaneSpline(MovementLane);
+	
+	float DistanceAlong = MovementSpline->GetDistanceAlongSplineAtLocation(ActorLocation, ESplineCoordinateSpace::World);
+	FVector TargetLocation = MovementSpline->GetWorldLocationAtDistanceAlongSpline(DistanceAlong + 100.0f);
+	FRotator TargetRotation = MovementSpline->GetWorldRotationAtDistanceAlongSpline(DistanceAlong);
+
+	FVector Direction = (TargetLocation - ActorLocation).GetSafeNormal();
+	
+	AddMovementInput(Direction, 1);
+	SetActorRotation(FRotator(0.0f, TargetRotation.Yaw, 0.0f));
 }

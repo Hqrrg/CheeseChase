@@ -14,7 +14,7 @@ void ACheeseChaseGameMode::BeginPlay()
 	Super::BeginPlay();
 
 	NextTileTransform = FTransform::Identity;
-	SpawnTiles(10);
+	SpawnTiles(StartingTiles);
 }
 
 // I FUCKING LOVE RECURSION!!!!!
@@ -60,8 +60,21 @@ void ACheeseChaseGameMode::SpawnTiles(int32 Num)
 		NextTile->FinishSpawning(NextTileTransform);
 		NextTileTransform = NextTile->GetNextAttachTransform();
 		CornerBuffer--;
+
+		Tiles.Add(NextTile);
+		PurgeTiles();
 	}
 
 	IsFirstTile = false;
 	if (Num > 1) SpawnTiles(Num - 1);
+}
+
+void ACheeseChaseGameMode::PurgeTiles()
+{
+	if (Tiles.Num() > TileLimit)
+	{
+		ATile* Tile = Tiles[0];
+		Tile->Destroy();
+		Tiles.RemoveAt(0);
+	}
 }

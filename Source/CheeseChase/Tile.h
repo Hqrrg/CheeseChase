@@ -24,6 +24,14 @@ enum EMeshAlignment : uint8
 	Right
 };
 
+UENUM(BlueprintType)
+enum class ETileLane : uint8
+{
+	Left = 0,
+	Middle,
+	Right
+};
+
 UCLASS()
 class CHEESECHASE_API ATile : public AActor
 {
@@ -91,15 +99,16 @@ public:
 	FTransform GetNextAttachTransform() const;
 
 	UFUNCTION(BlueprintPure)
-	FORCEINLINE class USplineComponent* GetLeftLaneSpline() const { return LeftLaneSpline; }
-
-	UFUNCTION(BlueprintPure)
-	FORCEINLINE class USplineComponent* GetMiddleLaneSpline() const { return MiddleLaneSpline; }
-
-	UFUNCTION(BlueprintPure)
-	FORCEINLINE class USplineComponent* GetRightLaneSpline() const { return RightLaneSpline; }
+	class USplineComponent* GetLaneSpline(ETileLane TileLane);
 
 	FORCEINLINE bool IsCorner() const { return E_NextAttachLocation != ETileAttachLocation::Forward; }
+
+private:
+	UFUNCTION()
+	void TileBoxBeginOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult &SweepResult);
+
+	UFUNCTION()
+	void TileBoxEndOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex);
 	
 private:
 	void UpdateMeshComponent(UStaticMeshComponent* MeshComponent, UStaticMesh* MeshAsset, EMeshAlignment Alignment = EMeshAlignment::None);
@@ -113,4 +122,8 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "*|Lanes", meta = (AllowPrivateAccess = "true", ClampMin = "0.25", UIMin = "0.25", ClampMax = "1", UIMax = "1"))
 	float LaneSpacingMultiplier = 1.0f;
+
+private:
+	UPROPERTY()
+	class ACheeseChaseGameMode* GameMode = nullptr;
 };

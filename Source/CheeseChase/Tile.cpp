@@ -3,9 +3,12 @@
 
 #include "Tile.h"
 
+#include "CheeseChaseCharacter.h"
+#include "CheeseChaseGameMode.h"
 #include "Components/ArrowComponent.h"
 #include "Components/BoxComponent.h"
 #include "Components/SplineComponent.h"
+#include "Kismet/GameplayStatics.h"
 
 
 // Sets default values
@@ -68,11 +71,62 @@ void ATile::OnConstruction(const FTransform& Transform)
 void ATile::BeginPlay()
 {
 	Super::BeginPlay();
+
+	UWorld* World = GetWorld();
+
+	if (World)
+	{
+		GameMode = Cast<ACheeseChaseGameMode>(UGameplayStatics::GetGameMode(World));
+	}
+	
+	TileBox->OnComponentBeginOverlap.AddDynamic(this, &ATile::TileBoxBeginOverlap);
+	TileBox->OnComponentEndOverlap.AddDynamic(this, &ATile::TileBoxEndOverlap);
 }
 
 FTransform ATile::GetNextAttachTransform() const
 {
 	return NextAttachArrow->GetComponentTransform();
+}
+
+class USplineComponent* ATile::GetLaneSpline(ETileLane TileLane)
+{
+	USplineComponent* Spline = nullptr;
+	
+	switch (TileLane)
+	{
+	case ETileLane::Left:
+		Spline = LeftLaneSpline;
+		break;
+	case ETileLane::Middle:
+		Spline = MiddleLaneSpline;
+		break;
+	case ETileLane::Right:
+		Spline = RightLaneSpline;
+		break;
+	default:
+		break;
+	}
+
+	return Spline;
+}
+
+void ATile::TileBoxBeginOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
+{
+	if (ACheeseChaseCharacter* Player = Cast<ACheeseChaseCharacter>(OtherActor))
+	{
+		Player->SetCurrentTile(this);
+	}
+}
+
+void ATile::TileBoxEndOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex)
+{
+	if (ACheeseChaseCharacter* Player = Cast<ACheeseChaseCharacter>(OtherActor))
+	{
+		if (GameMode)
+		{
+			GameMode->SpawnTiles(1);
+		}
+	}
 }
 
 void ATile::UpdateMeshComponent(UStaticMeshComponent* MeshComponent, UStaticMesh* MeshAsset, EMeshAlignment Alignment)
@@ -132,10 +186,13 @@ void ATile::UpdateMeshComponent(UStaticMeshComponent* MeshComponent, UStaticMesh
 void ATile::UpdateTileBox()
 {
 	TileBox->SetBoxExtent(FVector::ZeroVector);
-	
-	FVector Origin = GetActorLocation();
-	FVector NewBoxExtent = FVector(1.0f, 1.0f, 1.0f);
+
+	FVector Origin = FVector::ZeroVector;
+	FVector NewBoxExtent = FVector::ZeroVector;
 	GetActorBounds(true, Origin, NewBoxExtent);
+
+	NewBoxExtent.Z = FMath::Clamp(NewBoxExtent.Z, 100.0f, std::numeric_limits<float>::max());
+	
 	TileBox->SetBoxExtent(NewBoxExtent);
 	TileBox->SetRelativeLocation(FVector(0.0f, 0.0f, NewBoxExtent.Z));
 }
@@ -194,15 +251,16 @@ void ATile::UpdateLanes()
 	FVector MiddleLaneBegin = FVector::ZeroVector;
 	FVector RightLaneBegin = FVector::ZeroVector;
 
-	FVector LeftLaneTurn = FVector::ZeroVector;
-	FVector MiddleLaneTurn = FVector::ZeroVector;
-	FVector RightLaneTurn = FVector::ZeroVector;
-
 	FVector LeftLaneEnd = FVector::ZeroVector;
 	FVector MiddleLaneEnd = FVector::ZeroVector;
 	FVector RightLaneEnd = FVector::ZeroVector;
 
-	uint8 MaxSplinePoints = 2;
+	FVector LeftLaneBeginLeaveTangent = FVector::ZeroVector;
+	FVector LeftLaneEndArriveTangent = FVector::ZeroVector;
+	FVector MiddleLaneBeginLeaveTangent = FVector::ZeroVector;
+	FVector MiddleLaneEndArriveTangent = FVector::ZeroVector;
+	FVector RightLaneBeginLeaveTangent = FVector::ZeroVector;
+	FVector RightLaneEndArriveTangent = FVector::ZeroVector;
 	
 	if (FloorMeshAsset)
 	{
@@ -211,15 +269,15 @@ void ATile::UpdateLanes()
 		float LeftLaneY = -FloorBounds.Y/2*LaneSpacingMultiplier;
 		float RightLaneY = FloorBounds.Y/2*LaneSpacingMultiplier;
 		float ZBuffer = FloorBounds.Z+10.0f;
+
+		float Overhang = 0.0f;
 		
-		LeftLaneBegin = FVector(-FloorBounds.X, LeftLaneY, ZBuffer);
-		MiddleLaneBegin = FVector(-FloorBounds.X, 0.0f, ZBuffer);
-		RightLaneBegin = FVector(-FloorBounds.X, RightLaneY, ZBuffer);
+		LeftLaneBegin = FVector(-FloorBounds.X - Overhang, LeftLaneY, ZBuffer);
+		MiddleLaneBegin = FVector(-FloorBounds.X - Overhang, 0.0f, ZBuffer);
+		RightLaneBegin = FVector(-FloorBounds.X - Overhang, RightLaneY, ZBuffer);
 
 		if (E_NextAttachLocation != ETileAttachLocation::Forward)
 		{
-			MaxSplinePoints = 3;
-			
 			float LeftLaneTurnX = 0.0f;
 			float RightLaneTurnX = 0.0f;
 			float LaneEndY = 0.0f;
@@ -229,33 +287,38 @@ void ATile::UpdateLanes()
 			case ETileAttachLocation::Left:
 				LeftLaneTurnX = -FloorBounds.Y/2*LaneSpacingMultiplier;
 				RightLaneTurnX = FloorBounds.Y/2*LaneSpacingMultiplier;
-				LaneEndY = -FloorBounds.Y;
+				LaneEndY = -FloorBounds.Y - Overhang;
 				break;
 				
 			case ETileAttachLocation::Right:
 				LeftLaneTurnX = FloorBounds.Y/2*LaneSpacingMultiplier;
 				RightLaneTurnX = -FloorBounds.Y/2*LaneSpacingMultiplier;
-				LaneEndY = FloorBounds.Y;
+				LaneEndY = FloorBounds.Y + Overhang;
 				break;
 				
 			default:
 				break;
 			}
-
-			LeftLaneTurn = FVector(LeftLaneTurnX, LeftLaneY, ZBuffer);
-			MiddleLaneTurn = FVector(0.0f, 0.0f, ZBuffer);
-			RightLaneTurn = FVector(RightLaneTurnX, RightLaneY, ZBuffer);
 			
 			LeftLaneEnd = FVector(LeftLaneTurnX, LaneEndY, ZBuffer);
 			MiddleLaneEnd = FVector(0.0f, LaneEndY, ZBuffer);
 			RightLaneEnd = FVector(RightLaneTurnX, LaneEndY, ZBuffer);
 
+			LeftLaneBeginLeaveTangent = FVector((LeftLaneEnd.X - LeftLaneBegin.X) * 2.5, 0.0f, 0.0f);
+			LeftLaneEndArriveTangent = FVector(0.0f, (LeftLaneEnd.Y - LeftLaneBegin.Y) * 2.5, 0.0f);
+
+			MiddleLaneBeginLeaveTangent = FVector((MiddleLaneEnd.X - MiddleLaneBegin.X) * 2.5, 0.0f, 0.0f);
+			MiddleLaneEndArriveTangent = FVector(0.0f, (MiddleLaneEnd.Y - MiddleLaneBegin.Y) * 2.5, 0.0f);
+
+			RightLaneBeginLeaveTangent = FVector((RightLaneEnd.X - RightLaneBegin.X) * 2.5, 0.0f, 0.0f);
+			RightLaneEndArriveTangent = FVector(0.0f, (RightLaneEnd.Y - RightLaneBegin.Y) * 2.5, 0.0f);
+
 			goto PopulateSplines;
 		}
 
-		LeftLaneEnd = FVector(FloorBounds.X, LeftLaneY, ZBuffer);
-		MiddleLaneEnd = FVector(FloorBounds.X, 0.0f, ZBuffer);
-		RightLaneEnd = FVector(FloorBounds.X, RightLaneY, ZBuffer);
+		LeftLaneEnd = FVector(FloorBounds.X + Overhang, LeftLaneY, ZBuffer);
+		MiddleLaneEnd = FVector(FloorBounds.X + Overhang, 0.0f, ZBuffer);
+		RightLaneEnd = FVector(FloorBounds.X + Overhang, RightLaneY, ZBuffer);
 	}
 
 	PopulateSplines:
@@ -264,22 +327,19 @@ void ATile::UpdateLanes()
 	MiddleLaneSpline->AddSplineLocalPoint(MiddleLaneBegin);
 	RightLaneSpline->AddSplineLocalPoint(RightLaneBegin);
 
-	if (E_NextAttachLocation != ETileAttachLocation::Forward)
-	{
-		LeftLaneSpline->AddSplineLocalPoint(LeftLaneTurn);
-		MiddleLaneSpline->AddSplineLocalPoint(MiddleLaneTurn);
-		RightLaneSpline->AddSplineLocalPoint(RightLaneTurn);
-	}
-
 	LeftLaneSpline->AddSplineLocalPoint(LeftLaneEnd);
 	MiddleLaneSpline->AddSplineLocalPoint(MiddleLaneEnd);
 	RightLaneSpline->AddSplineLocalPoint(RightLaneEnd);
-
-
-	for (uint8 Index = 0; Index < MaxSplinePoints; Index++)
+	
+	if (E_NextAttachLocation != ETileAttachLocation::Forward)
 	{
-		LeftLaneSpline->SetSplinePointType(Index, ESplinePointType::Linear);
-		MiddleLaneSpline->SetSplinePointType(Index, ESplinePointType::Linear);
-		RightLaneSpline->SetSplinePointType(Index, ESplinePointType::Linear);
+		LeftLaneSpline->SetTangentsAtSplinePoint(0, FVector(0.0f, 0.0f, 0.0f), LeftLaneBeginLeaveTangent, ESplineCoordinateSpace::Local);
+		LeftLaneSpline->SetTangentsAtSplinePoint(1, LeftLaneEndArriveTangent, FVector(0.0f, 0.0f,0.0f), ESplineCoordinateSpace::Local);
+
+		MiddleLaneSpline->SetTangentsAtSplinePoint(0, FVector(0.0f, 0.0f, 0.0f), MiddleLaneBeginLeaveTangent, ESplineCoordinateSpace::Local);
+		MiddleLaneSpline->SetTangentsAtSplinePoint(1, MiddleLaneEndArriveTangent, FVector(0.0f, 0.0f,0.0f), ESplineCoordinateSpace::Local);
+
+		RightLaneSpline->SetTangentsAtSplinePoint(0, FVector(0.0f, 0.0f, 0.0f), RightLaneBeginLeaveTangent, ESplineCoordinateSpace::Local);
+		RightLaneSpline->SetTangentsAtSplinePoint(1, RightLaneEndArriveTangent, FVector(0.0f, 0.0f,0.0f), ESplineCoordinateSpace::Local);
 	}
 }
