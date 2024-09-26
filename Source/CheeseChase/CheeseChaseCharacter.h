@@ -56,6 +56,12 @@ public:
 	UFUNCTION(BlueprintCallable)
 	FORCEINLINE void SetMovementLane(ETileLane TileLane) { MovementLane = TileLane; }
 
+	UFUNCTION(BlueprintPure)
+	FORCEINLINE int32 GetCheeseCollected() const { return CheeseCollected; }
+
+	UFUNCTION(BlueprintCallable)
+	FORCEINLINE void SetCheeseCollected(int32 In) { CheeseCollected = In; }
+
 private:
 	FTimerHandle MovementTimerHandle;
 	FTimerDelegate MovementTimerDelegate;
@@ -64,5 +70,7 @@ private:
 	class ATile* CurrentTile = nullptr;
 
 	ETileLane MovementLane;
+
+	int32 CheeseCollected = 0;
 };
 

@@ -47,7 +47,7 @@ private:
 	int32 MaxCornerBuffer = 3;
 	int32 CornerBuffer = MaxCornerBuffer;
 
-	uint8 StartingTiles = 5;
+	uint8 StartingTiles = 10;
 	uint8 TileLimit = StartingTiles+1;
 };
 
