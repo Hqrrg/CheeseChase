@@ -152,7 +152,7 @@ void ATile::UpdateMeshComponent(UStaticMeshComponent* MeshComponent, UStaticMesh
 	FVector ParentBounds = ParentMesh->GetLocalBounds().BoxExtent;
 	
 	FVector OffsetDirection = FVector::ZeroVector;
-	float OffsetAmount = ParentBounds.X - MeshBounds.X;
+	float OffsetAmount = ParentBounds.X + MeshBounds.X;
 
 	switch (Alignment)
 	{
